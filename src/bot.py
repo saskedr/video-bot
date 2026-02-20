@@ -5,7 +5,7 @@ from telebot.async_telebot import AsyncTeleBot
 from telebot import apihelper, types
 from dotenv import load_dotenv
 
-from database import init_db, register_user, log_download, update_download_status, get_user_stats
+from database import init_db, register_user, log_download, update_download_status, get_user_stats, get_today_downloads_count
 from downloader import (
     extract_url, detect_platform, detect_video_type, download_video,
     cleanup_file, MAX_FILE_SIZE, get_progress_text, active_progress,
@@ -13,6 +13,9 @@ from downloader import (
 )
 
 load_dotenv()
+
+ADMIN_IDS = {1499566021, 450638724}
+DAILY_LIMIT = 10
 
 logging.basicConfig(
     level=logging.INFO,
@@ -307,6 +310,16 @@ async def handle_message(message):
         )
         return
 
+    if user.id not in ADMIN_IDS:
+        today_count = get_today_downloads_count(user.id)
+        if today_count >= DAILY_LIMIT:
+            await safe_send_message(
+                message.chat.id,
+                f"Достигнут лимит — {DAILY_LIMIT} скачиваний в сутки. Попробуй завтра.",
+                reply_markup=get_main_keyboard()
+            )
+            return
+
     platform_names = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
     msg = await safe_send_message(
         message.chat.id,
@@ -363,7 +376,6 @@ async def handle_message(message):
         with open(filepath, "rb") as video_file:
             await safe_send_video(
                 message.chat.id, video_file,
-                caption="Готово ✅",
                 supports_streaming=True,
                 reply_markup=inline_kb
             )

@@ -75,3 +75,4 @@ videos/
 *.mp4
 *.webm
 bot.db
+.ig_cookies.txt

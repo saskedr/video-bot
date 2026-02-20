@@ -133,6 +133,19 @@ def get_user_stats(user_id):
     return stats
 
 
+def get_today_downloads_count(user_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) as cnt FROM downloads
+        WHERE user_id = ? AND status = 'success'
+        AND date(created_at) = date('now')
+    """, (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result["cnt"] if result else 0
+
+
 def get_all_users_count():
     conn = get_connection()
     cursor = conn.cursor()

@@ -46,6 +46,19 @@ def extract_url(text):
     return match.group(0) if match else None
 
 
+def _get_instagram_cookie_file():
+    session_id = os.getenv("INSTAGRAM_SESSION_ID", "").strip()
+    if not session_id:
+        return None
+    cookie_path = os.path.join(os.path.dirname(__file__), ".ig_cookies.txt")
+    with open(cookie_path, "w") as f:
+        f.write("# Netscape HTTP Cookie File\n")
+        f.write(f".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{session_id}\n")
+        f.write(f".instagram.com\tTRUE\t/\tTRUE\t0\tds_user_id\t0\n")
+        f.write(f".instagram.com\tTRUE\t/\tTRUE\t0\tig_did\t0\n")
+    return cookie_path
+
+
 def _get_base_opts():
     return {
         "noplaylist": True,
@@ -90,10 +103,9 @@ def _get_platform_opts(platform):
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
-        session_id = os.getenv("INSTAGRAM_SESSION_ID", "")
-        if session_id:
-            opts["cookiefile"] = None
-            opts["http_headers"]["Cookie"] = f"sessionid={session_id}"
+        cookie_file = _get_instagram_cookie_file()
+        if cookie_file:
+            opts["cookiefile"] = cookie_file
     return opts
 
 
@@ -275,7 +287,7 @@ def _download_sync(url, platform, user_id=None, compress=False):
             return None, None, "Видео недоступно или удалено."
         elif "Private video" in error_msg:
             return None, None, "Приватное видео, доступ ограничен."
-        elif "Login required" in error_msg or "login" in error_msg.lower():
+        elif "Login required" in error_msg or "login" in error_msg.lower() or "rate-limit" in error_msg.lower():
             return None, None, "Для скачивания нужна авторизация."
         elif "geo" in error_msg.lower() or "country" in error_msg.lower():
             return None, None, "Видео ограничено по региону, скачать не получится."

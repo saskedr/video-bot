@@ -26,14 +26,18 @@ src/
 - **Platform-specific download configs**: Each platform (YouTube, TikTok, Instagram) has tailored yt-dlp settings (headers, format, user-agent).
 
 ## Features
-- Download videos from YouTube (regular + Shorts), TikTok, Instagram
-- Best quality download via yt-dlp with geo_bypass
+- Download videos from YouTube (regular + Shorts), TikTok, Instagram (Reels + posts)
+- Best quality download via yt-dlp with geo_bypass (YouTube limited to 720p)
 - Cascading proxy: SOCKS5 -> MTProto -> Direct
 - Auto-reconnect on connection failure
 - SQLite logging of all downloads and users
 - File size check (50MB Telegram limit)
 - Video compression option via ffmpeg if file too large
-- User statistics (/stats command)
+- User statistics with platform breakdown (YouTube/Shorts/TikTok/Reels/Instagram)
+- Inline "Получить описание" button on every video
+- Admin users (IDs: 1499566021, 450638724) with unlimited downloads
+- Daily download limit: 10 per user (admins exempt)
+- Instagram authentication via Netscape cookie file from INSTAGRAM_SESSION_ID
 
 ## Required Secrets
 - TELEGRAM_BOT_TOKEN - Bot token from @BotFather
