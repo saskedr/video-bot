@@ -326,7 +326,7 @@ async def handle_message(message):
 
     try:
         with open(filepath, "rb") as video_file:
-            await safe_send_video(message.chat.id, video_file, supports_streaming=True)
+            await safe_send_video(message.chat.id, video_file, caption="Готово ✅", supports_streaming=True)
         update_download_status(download_id, "success", file_size)
 
         if description and description.strip():
