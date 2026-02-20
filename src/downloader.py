@@ -1,10 +1,13 @@
 import os
 import re
 import asyncio
+import time
 import yt_dlp
 
 VIDEOS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "videos")
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
+active_progress = {}
 
 
 def ensure_videos_dir():
@@ -75,7 +78,99 @@ def _get_platform_opts(platform):
     return opts
 
 
-def _download_sync(url, platform, compress=False):
+def _make_progress_hook(user_id):
+    def hook(d):
+        if d["status"] == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            downloaded = d.get("downloaded_bytes", 0)
+            speed = d.get("speed") or 0
+            eta = d.get("eta") or 0
+
+            if total > 0:
+                percent = min(downloaded / total * 100, 100)
+            else:
+                percent = 0
+
+            active_progress[user_id] = {
+                "percent": percent,
+                "downloaded": downloaded,
+                "total": total,
+                "speed": speed,
+                "eta": eta,
+                "status": "downloading",
+                "updated_at": time.time(),
+            }
+        elif d["status"] == "finished":
+            active_progress[user_id] = {
+                "percent": 100,
+                "downloaded": 0,
+                "total": 0,
+                "speed": 0,
+                "eta": 0,
+                "status": "processing",
+                "updated_at": time.time(),
+            }
+    return hook
+
+
+def format_size(bytes_val):
+    if bytes_val < 1024:
+        return f"{bytes_val} Б"
+    elif bytes_val < 1024 * 1024:
+        return f"{bytes_val / 1024:.1f} КБ"
+    else:
+        return f"{bytes_val / (1024 * 1024):.1f} МБ"
+
+
+def format_speed(speed):
+    if not speed or speed == 0:
+        return "..."
+    if speed < 1024:
+        return f"{speed:.0f} Б/с"
+    elif speed < 1024 * 1024:
+        return f"{speed / 1024:.0f} КБ/с"
+    else:
+        return f"{speed / (1024 * 1024):.1f} МБ/с"
+
+
+def format_eta(eta):
+    if not eta or eta == 0:
+        return "хз"
+    if eta < 60:
+        return f"{int(eta)}с"
+    return f"{int(eta // 60)}м {int(eta % 60)}с"
+
+
+def build_progress_bar(percent, width=10):
+    filled = int(width * percent / 100)
+    empty = width - filled
+    bar = "█" * filled + "░" * empty
+    return bar
+
+
+def get_progress_text(user_id, platform):
+    platform_names = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
+    p = active_progress.get(user_id)
+    if not p:
+        return f"🔍 ищу видео на {platform_names.get(platform, platform)}..."
+
+    if p["status"] == "processing":
+        return f"⚡ почти готово, обрабатываю..."
+
+    percent = p["percent"]
+    bar = build_progress_bar(percent)
+    speed_str = format_speed(p["speed"])
+    eta_str = format_eta(p["eta"])
+
+    lines = [f"{bar} {percent:.0f}%"]
+    if p["total"] > 0:
+        lines.append(f"📦 {format_size(p['downloaded'])} / {format_size(p['total'])}")
+    lines.append(f"⚡ {speed_str}  ⏱ ~{eta_str}")
+
+    return "\n".join(lines)
+
+
+def _download_sync(url, platform, user_id=None, compress=False):
     ensure_videos_dir()
     output_template = os.path.join(VIDEOS_DIR, "%(id)s.%(ext)s")
 
@@ -83,11 +178,14 @@ def _download_sync(url, platform, compress=False):
     ydl_opts["outtmpl"] = output_template
     ydl_opts.update(_get_platform_opts(platform))
 
+    if user_id:
+        ydl_opts["progress_hooks"] = [_make_progress_hook(user_id)]
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info is None:
-                return None, "Не удалось найти видео по этой ссылке."
+                return None, "не нашел видео по этой ссылке 🤷"
 
             filename = ydl.prepare_filename(info)
             if not filename.endswith(".mp4"):
@@ -102,37 +200,40 @@ def _download_sync(url, platform, compress=False):
                         break
 
             if not os.path.exists(filename):
-                return None, "Не удалось найти скачанный файл."
+                return None, "скачал, но файл куда-то делся 🫠"
 
             file_size = os.path.getsize(filename)
 
             if compress and file_size > MAX_FILE_SIZE:
-                compressed_filename = _compress_sync(filename)
+                compressed_filename = _compress_sync(input_path=filename)
                 if compressed_filename and os.path.exists(compressed_filename):
                     os.remove(filename)
                     compressed_size = os.path.getsize(compressed_filename)
                     if compressed_size > MAX_FILE_SIZE:
                         os.remove(compressed_filename)
-                        return None, "Даже после сжатия файл слишком большой для отправки в Telegram (>50 МБ)."
+                        return None, "даже после сжатия видос слишком тяжелый для тг (>50 МБ) 😔"
                     return compressed_filename, None
                 else:
-                    return filename, "Не удалось сжать видео."
+                    return filename, "не получилось сжать видео 😕"
 
             return filename, None
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
         if "Video unavailable" in error_msg or "not available" in error_msg:
-            return None, "Видео недоступно или было удалено."
+            return None, "видео недоступно или удалено 💀"
         elif "Private video" in error_msg:
-            return None, "Это приватное видео, доступ к нему ограничен."
+            return None, "это приватное видео, не могу достать 🔒"
         elif "Login required" in error_msg or "login" in error_msg.lower():
-            return None, "Для скачивания этого видео требуется авторизация."
+            return None, "нужна авторизация для скачивания, не могу 😤"
         elif "geo" in error_msg.lower() or "country" in error_msg.lower():
-            return None, "Видео недоступно в данном регионе."
-        return None, "Ошибка при скачивании: видео не найдено или недоступно."
+            return None, "видео заблокировано в этом регионе 🌍"
+        return None, "не получилось скачать, видео не найдено или недоступно 😕"
     except Exception:
-        return None, "Произошла непредвиденная ошибка при скачивании."
+        return None, "что-то пошло не так при скачивании 💥"
+    finally:
+        if user_id and user_id in active_progress:
+            del active_progress[user_id]
 
 
 def _compress_sync(input_path):
@@ -162,13 +263,13 @@ def _compress_sync(input_path):
         return None
 
 
-async def download_video(url, compress=False):
+async def download_video(url, user_id=None, compress=False):
     platform = detect_platform(url)
     if not platform:
-        return None, None, "Поддерживаются только ссылки с TikTok, Instagram и YouTube."
+        return None, None, "поддерживаются только TikTok, Instagram и YouTube 🙅"
 
     loop = asyncio.get_event_loop()
-    filepath, error = await loop.run_in_executor(None, _download_sync, url, platform, compress)
+    filepath, error = await loop.run_in_executor(None, _download_sync, url, platform, user_id, compress)
     return filepath, platform, error
 
 
