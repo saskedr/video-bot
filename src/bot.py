@@ -258,23 +258,20 @@ async def callback_description(call):
     await send_with_fallback(bot.answer_callback_query, call.id)
 
     max_len = 4000
-    prefix = "📝 Описание:\n\n"
-    if len(description) <= max_len - len(prefix):
+    if len(description) <= max_len:
         await safe_send_message(
             call.message.chat.id,
-            f"{prefix}{description}",
+            description,
             reply_markup=get_main_keyboard()
         )
     else:
         chunks = []
         while description:
-            chunk_size = max_len - len(prefix) if not chunks else max_len
-            chunks.append(description[:chunk_size])
-            description = description[chunk_size:]
+            chunks.append(description[:max_len])
+            description = description[max_len:]
         for i, chunk in enumerate(chunks):
-            text = f"{prefix}{chunk}" if i == 0 else chunk
             markup = get_main_keyboard() if i == len(chunks) - 1 else None
-            await safe_send_message(call.message.chat.id, text, reply_markup=markup)
+            await safe_send_message(call.message.chat.id, chunk, reply_markup=markup)
 
     try:
         await send_with_fallback(
