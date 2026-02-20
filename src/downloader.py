@@ -164,10 +164,35 @@ def get_progress_text(user_id, platform):
 
     lines = [f"Скачиваю видео\n{bar} {percent:.0f}%"]
     if p["total"] > 0:
-        lines.append(f"{format_size(p['downloaded'])} / {format_size(p['total'])}")
-    lines.append(f"{speed_str} · ~{eta_str}")
+        lines.append(f"{format_size(p['downloaded'])} / {format_size(p['total'])} · {speed_str}")
+    else:
+        lines.append(speed_str)
+    lines.append(f"~{eta_str}")
 
     return "\n".join(lines)
+
+
+video_descriptions = {}
+_desc_counter = 0
+
+
+def store_description(description):
+    global _desc_counter
+    _desc_counter += 1
+    key = str(_desc_counter)
+    now = time.time()
+    expired = [k for k, v in video_descriptions.items() if now - v["ts"] > 3600]
+    for k in expired:
+        del video_descriptions[k]
+    video_descriptions[key] = {"text": description, "ts": now}
+    return key
+
+
+def get_description(key):
+    entry = video_descriptions.pop(key, None)
+    if entry:
+        return entry["text"]
+    return None
 
 
 def _download_sync(url, platform, user_id=None, compress=False):
@@ -181,11 +206,15 @@ def _download_sync(url, platform, user_id=None, compress=False):
     if user_id:
         ydl_opts["progress_hooks"] = [_make_progress_hook(user_id)]
 
+    description = None
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info is None:
-                return None, "Видео не нашлось 😔"
+                return None, None, "Видео не нашлось 😔"
+
+            description = info.get("description") or ""
 
             filename = ydl.prepare_filename(info)
             if not filename.endswith(".mp4"):
@@ -200,7 +229,7 @@ def _download_sync(url, platform, user_id=None, compress=False):
                         break
 
             if not os.path.exists(filename):
-                return None, "Видео не нашлось 😔"
+                return None, None, "Видео не нашлось 😔"
 
             file_size = os.path.getsize(filename)
 
@@ -211,26 +240,26 @@ def _download_sync(url, platform, user_id=None, compress=False):
                     compressed_size = os.path.getsize(compressed_filename)
                     if compressed_size > MAX_FILE_SIZE:
                         os.remove(compressed_filename)
-                        return None, "Видео слишком большое даже после сжатия."
-                    return compressed_filename, None
+                        return None, None, "Видео слишком большое даже после сжатия."
+                    return compressed_filename, description, None
                 else:
-                    return filename, "Не получилось сжать видео."
+                    return filename, description, "Не получилось сжать видео."
 
-            return filename, None
+            return filename, description, None
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
         if "Video unavailable" in error_msg or "not available" in error_msg:
-            return None, "Видео недоступно или удалено."
+            return None, None, "Видео недоступно или удалено."
         elif "Private video" in error_msg:
-            return None, "Приватное видео, доступ ограничен."
+            return None, None, "Приватное видео, доступ ограничен."
         elif "Login required" in error_msg or "login" in error_msg.lower():
-            return None, "Для скачивания нужна авторизация."
+            return None, None, "Для скачивания нужна авторизация."
         elif "geo" in error_msg.lower() or "country" in error_msg.lower():
-            return None, "Видео недоступно в этом регионе."
-        return None, "Видео не нашлось 😔"
+            return None, None, "Видео недоступно в этом регионе."
+        return None, None, "Видео не нашлось 😔"
     except Exception:
-        return None, "Видео не нашлось 😔"
+        return None, None, "Видео не нашлось 😔"
     finally:
         if user_id and user_id in active_progress:
             del active_progress[user_id]
@@ -266,11 +295,11 @@ def _compress_sync(input_path):
 async def download_video(url, user_id=None, compress=False):
     platform = detect_platform(url)
     if not platform:
-        return None, None, "Ссылка не распознана."
+        return None, None, None, "Ссылка не распознана."
 
     loop = asyncio.get_event_loop()
-    filepath, error = await loop.run_in_executor(None, _download_sync, url, platform, user_id, compress)
-    return filepath, platform, error
+    filepath, description, error = await loop.run_in_executor(None, _download_sync, url, platform, user_id, compress)
+    return filepath, platform, description, error
 
 
 async def compress_video(input_path):

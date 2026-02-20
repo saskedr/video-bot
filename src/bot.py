@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from database import init_db, register_user, log_download, update_download_status, get_user_stats
 from downloader import (
     extract_url, detect_platform, download_video,
-    cleanup_file, MAX_FILE_SIZE, get_progress_text, active_progress
+    cleanup_file, MAX_FILE_SIZE, get_progress_text, active_progress,
+    store_description, get_description
 )
 
 load_dotenv()
@@ -211,6 +212,48 @@ async def btn_stats(message):
     await safe_send_message(message.chat.id, text, reply_markup=get_main_keyboard())
 
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("desc_"))
+async def callback_description(call):
+    desc_key = call.data[5:]
+    description = get_description(desc_key)
+
+    if description:
+        await send_with_fallback(bot.answer_callback_query, call.id)
+
+        max_len = 4000
+        prefix = "📝 Описание:\n\n"
+        if len(description) <= max_len - len(prefix):
+            await safe_send_message(
+                call.message.chat.id,
+                f"{prefix}{description}",
+                reply_markup=get_main_keyboard()
+            )
+        else:
+            chunks = []
+            while description:
+                chunk_size = max_len - len(prefix) if not chunks else max_len
+                chunks.append(description[:chunk_size])
+                description = description[chunk_size:]
+            for i, chunk in enumerate(chunks):
+                text = f"{prefix}{chunk}" if i == 0 else chunk
+                markup = get_main_keyboard() if i == len(chunks) - 1 else None
+                await safe_send_message(call.message.chat.id, text, reply_markup=markup)
+
+        try:
+            await send_with_fallback(
+                bot.edit_message_reply_markup,
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=None
+            )
+        except Exception:
+            pass
+    else:
+        await send_with_fallback(
+            bot.answer_callback_query, call.id, text="Описание больше недоступно."
+        )
+
+
 @bot.message_handler(func=lambda m: m.text is not None)
 async def handle_message(message):
     user = message.from_user
@@ -247,7 +290,7 @@ async def handle_message(message):
         update_progress(message.chat.id, msg.message_id, user.id, platform, done_event)
     )
 
-    filepath, _, error = await download_video(url, user_id=user.id)
+    filepath, _, description, error = await download_video(url, user_id=user.id)
 
     done_event.set()
     try:
@@ -285,7 +328,20 @@ async def handle_message(message):
         with open(filepath, "rb") as video_file:
             await safe_send_video(message.chat.id, video_file, supports_streaming=True)
         update_download_status(download_id, "success", file_size)
-        await safe_edit_message("Готово ✅", message.chat.id, msg.message_id)
+
+        if description and description.strip():
+            desc_key = store_description(description.strip())
+            inline_kb = types.InlineKeyboardMarkup()
+            inline_kb.add(types.InlineKeyboardButton("📝 Получить описание", callback_data=f"desc_{desc_key}"))
+            await safe_edit_message("Готово ✅", message.chat.id, msg.message_id, reply_markup=inline_kb)
+        else:
+            await safe_edit_message("Готово ✅", message.chat.id, msg.message_id)
+
+        await safe_send_message(
+            message.chat.id,
+            "Спасибо, что пользуешься мной ❤️",
+            reply_markup=get_main_keyboard()
+        )
     except Exception:
         update_download_status(download_id, "error")
         await safe_edit_message(
