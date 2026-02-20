@@ -1,6 +1,6 @@
 import os
 import re
-import subprocess
+import asyncio
 import yt_dlp
 
 VIDEOS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "videos")
@@ -75,13 +75,8 @@ def _get_platform_opts(platform):
     return opts
 
 
-def download_video(url, compress=False):
+def _download_sync(url, platform, compress=False):
     ensure_videos_dir()
-
-    platform = detect_platform(url)
-    if not platform:
-        return None, None, "Поддерживаются только ссылки с TikTok, Instagram и YouTube."
-
     output_template = os.path.join(VIDEOS_DIR, "%(id)s.%(ext)s")
 
     ydl_opts = _get_base_opts()
@@ -92,7 +87,7 @@ def download_video(url, compress=False):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info is None:
-                return None, platform, "Не удалось найти видео по этой ссылке."
+                return None, "Не удалось найти видео по этой ссылке."
 
             filename = ydl.prepare_filename(info)
             if not filename.endswith(".mp4"):
@@ -107,40 +102,41 @@ def download_video(url, compress=False):
                         break
 
             if not os.path.exists(filename):
-                return None, platform, "Не удалось найти скачанный файл."
+                return None, "Не удалось найти скачанный файл."
 
             file_size = os.path.getsize(filename)
 
             if compress and file_size > MAX_FILE_SIZE:
-                compressed_filename = compress_video(filename)
+                compressed_filename = _compress_sync(filename)
                 if compressed_filename and os.path.exists(compressed_filename):
                     os.remove(filename)
                     compressed_size = os.path.getsize(compressed_filename)
                     if compressed_size > MAX_FILE_SIZE:
                         os.remove(compressed_filename)
-                        return None, platform, "Даже после сжатия файл слишком большой для отправки в Telegram (>50 МБ)."
-                    return compressed_filename, platform, None
+                        return None, "Даже после сжатия файл слишком большой для отправки в Telegram (>50 МБ)."
+                    return compressed_filename, None
                 else:
-                    return filename, platform, "Не удалось сжать видео."
+                    return filename, "Не удалось сжать видео."
 
-            return filename, platform, None
+            return filename, None
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
         if "Video unavailable" in error_msg or "not available" in error_msg:
-            return None, platform, "Видео недоступно или было удалено."
+            return None, "Видео недоступно или было удалено."
         elif "Private video" in error_msg:
-            return None, platform, "Это приватное видео, доступ к нему ограничен."
+            return None, "Это приватное видео, доступ к нему ограничен."
         elif "Login required" in error_msg or "login" in error_msg.lower():
-            return None, platform, "Для скачивания этого видео требуется авторизация."
+            return None, "Для скачивания этого видео требуется авторизация."
         elif "geo" in error_msg.lower() or "country" in error_msg.lower():
-            return None, platform, "Видео недоступно в данном регионе."
-        return None, platform, "Ошибка при скачивании: видео не найдено или недоступно."
+            return None, "Видео недоступно в данном регионе."
+        return None, "Ошибка при скачивании: видео не найдено или недоступно."
     except Exception:
-        return None, platform, "Произошла непредвиденная ошибка при скачивании."
+        return None, "Произошла непредвиденная ошибка при скачивании."
 
 
-def compress_video(input_path):
+def _compress_sync(input_path):
+    import subprocess
     output_path = input_path.replace(".mp4", "_compressed.mp4")
     try:
         cmd = [
@@ -164,6 +160,21 @@ def compress_video(input_path):
         return None
     except Exception:
         return None
+
+
+async def download_video(url, compress=False):
+    platform = detect_platform(url)
+    if not platform:
+        return None, None, "Поддерживаются только ссылки с TikTok, Instagram и YouTube."
+
+    loop = asyncio.get_event_loop()
+    filepath, error = await loop.run_in_executor(None, _download_sync, url, platform, compress)
+    return filepath, platform, error
+
+
+async def compress_video(input_path):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _compress_sync, input_path)
 
 
 def cleanup_file(filepath):
