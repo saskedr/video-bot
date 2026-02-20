@@ -31,6 +31,7 @@ def init_db():
             user_id INTEGER NOT NULL,
             url TEXT NOT NULL,
             platform TEXT,
+            video_type TEXT,
             status TEXT DEFAULT 'pending',
             file_size INTEGER,
             compressed INTEGER DEFAULT 0,
@@ -38,6 +39,12 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     """)
+
+    try:
+        cursor.execute("ALTER TABLE downloads ADD COLUMN video_type TEXT")
+        conn.commit()
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -54,13 +61,13 @@ def register_user(user_id, username=None, first_name=None, last_name=None):
     conn.close()
 
 
-def log_download(user_id, url, platform, status="pending", file_size=None, compressed=False):
+def log_download(user_id, url, platform, video_type=None, status="pending", file_size=None, compressed=False):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO downloads (user_id, url, platform, status, file_size, compressed)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, url, platform, status, file_size, 1 if compressed else 0))
+        INSERT INTO downloads (user_id, url, platform, video_type, status, file_size, compressed)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, url, platform, video_type, status, file_size, 1 if compressed else 0))
     download_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -105,8 +112,24 @@ def get_user_stats(user_id):
         FROM downloads WHERE user_id = ?
     """, (user_id,))
     result = cursor.fetchone()
+    stats = dict(result) if result else {"total": 0, "success": 0, "errors": 0}
+
+    cursor.execute("""
+        SELECT
+            SUM(CASE WHEN video_type = 'youtube' AND status = 'success' THEN 1 ELSE 0 END) as youtube,
+            SUM(CASE WHEN video_type = 'shorts' AND status = 'success' THEN 1 ELSE 0 END) as shorts,
+            SUM(CASE WHEN video_type = 'tiktok' AND status = 'success' THEN 1 ELSE 0 END) as tiktok,
+            SUM(CASE WHEN video_type = 'reels' AND status = 'success' THEN 1 ELSE 0 END) as reels
+        FROM downloads WHERE user_id = ?
+    """, (user_id,))
+    platform_result = cursor.fetchone()
+    if platform_result:
+        stats.update(dict(platform_result))
+    else:
+        stats.update({"youtube": 0, "shorts": 0, "tiktok": 0, "reels": 0})
+
     conn.close()
-    return dict(result) if result else {"total": 0, "success": 0, "errors": 0}
+    return stats
 
 
 def get_all_users_count():

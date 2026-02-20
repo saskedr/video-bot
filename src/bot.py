@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from database import init_db, register_user, log_download, update_download_status, get_user_stats
 from downloader import (
-    extract_url, detect_platform, download_video,
+    extract_url, detect_platform, detect_video_type, download_video,
     cleanup_file, MAX_FILE_SIZE, get_progress_text, active_progress,
     store_description, get_description
 )
@@ -204,17 +204,24 @@ async def btn_stats(message):
     stats = get_user_stats(message.from_user.id)
     total = stats["total"] or 0
     success = stats["success"] or 0
-    errors = stats["errors"] or 0
+    yt = stats.get("youtube") or 0
+    shorts = stats.get("shorts") or 0
+    tiktok = stats.get("tiktok") or 0
+    reels = stats.get("reels") or 0
 
     if total == 0:
         text = "Скачиваний пока не было."
     else:
-        text = (
-            f"Статистика:\n\n"
-            f"Всего запросов: {total}\n"
-            f"Успешно: {success}\n"
-            f"Ошибок: {errors}"
-        )
+        lines = [f"Статистика:\n", f"Всего скачано: {success}"]
+        if yt > 0:
+            lines.append(f"▸ YouTube: {yt}")
+        if shorts > 0:
+            lines.append(f"▸ Shorts: {shorts}")
+        if tiktok > 0:
+            lines.append(f"▸ TikTok: {tiktok}")
+        if reels > 0:
+            lines.append(f"▸ Reels: {reels}")
+        text = "\n".join(lines)
 
     await safe_send_message(message.chat.id, text, reply_markup=get_main_keyboard())
 
@@ -224,28 +231,16 @@ async def callback_description(call):
     desc_key = call.data[5:]
     description = get_description(desc_key)
 
-    if description:
-        await send_with_fallback(bot.answer_callback_query, call.id)
+    if description is None:
+        await send_with_fallback(
+            bot.answer_callback_query, call.id, text="Описание больше недоступно."
+        )
+        return
 
-        max_len = 4000
-        prefix = "📝 Описание:\n\n"
-        if len(description) <= max_len - len(prefix):
-            await safe_send_message(
-                call.message.chat.id,
-                f"{prefix}{description}",
-                reply_markup=get_main_keyboard()
-            )
-        else:
-            chunks = []
-            while description:
-                chunk_size = max_len - len(prefix) if not chunks else max_len
-                chunks.append(description[:chunk_size])
-                description = description[chunk_size:]
-            for i, chunk in enumerate(chunks):
-                text = f"{prefix}{chunk}" if i == 0 else chunk
-                markup = get_main_keyboard() if i == len(chunks) - 1 else None
-                await safe_send_message(call.message.chat.id, text, reply_markup=markup)
-
+    if not description:
+        await send_with_fallback(
+            bot.answer_callback_query, call.id, text="У этого видео нет описания."
+        )
         try:
             await send_with_fallback(
                 bot.edit_message_reply_markup,
@@ -255,10 +250,38 @@ async def callback_description(call):
             )
         except Exception:
             pass
-    else:
-        await send_with_fallback(
-            bot.answer_callback_query, call.id, text="Описание больше недоступно."
+        return
+
+    await send_with_fallback(bot.answer_callback_query, call.id)
+
+    max_len = 4000
+    prefix = "📝 Описание:\n\n"
+    if len(description) <= max_len - len(prefix):
+        await safe_send_message(
+            call.message.chat.id,
+            f"{prefix}{description}",
+            reply_markup=get_main_keyboard()
         )
+    else:
+        chunks = []
+        while description:
+            chunk_size = max_len - len(prefix) if not chunks else max_len
+            chunks.append(description[:chunk_size])
+            description = description[chunk_size:]
+        for i, chunk in enumerate(chunks):
+            text = f"{prefix}{chunk}" if i == 0 else chunk
+            markup = get_main_keyboard() if i == len(chunks) - 1 else None
+            await safe_send_message(call.message.chat.id, text, reply_markup=markup)
+
+    try:
+        await send_with_fallback(
+            bot.edit_message_reply_markup,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=None
+        )
+    except Exception:
+        pass
 
 
 @bot.message_handler(func=lambda m: m.text is not None)
@@ -290,14 +313,15 @@ async def handle_message(message):
         f"Скачиваю видео с {platform_names.get(platform, platform)}..."
     )
 
-    download_id = log_download(user.id, url, platform)
+    video_type = detect_video_type(url, platform)
+    download_id = log_download(user.id, url, platform, video_type=video_type)
 
     done_event = asyncio.Event()
     progress_task = asyncio.create_task(
         update_progress(message.chat.id, msg.message_id, user.id, platform, done_event)
     )
 
-    filepath, _, description, error = await download_video(url, user_id=user.id)
+    filepath, _, _, description, error = await download_video(url, user_id=user.id)
 
     done_event.set()
     try:
@@ -332,11 +356,9 @@ async def handle_message(message):
         return
 
     try:
-        inline_kb = None
-        if description and description.strip():
-            desc_key = store_description(description.strip())
-            inline_kb = types.InlineKeyboardMarkup()
-            inline_kb.add(types.InlineKeyboardButton("📝 Получить описание", callback_data=f"desc_{desc_key}"))
+        desc_key = store_description(description.strip() if description and description.strip() else "")
+        inline_kb = types.InlineKeyboardMarkup()
+        inline_kb.add(types.InlineKeyboardButton("📝 Получить описание", callback_data=f"desc_{desc_key}"))
 
         with open(filepath, "rb") as video_file:
             await safe_send_video(

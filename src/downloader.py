@@ -25,6 +25,19 @@ def detect_platform(url):
     return None
 
 
+def detect_video_type(url, platform):
+    url_lower = url.lower()
+    if platform == "youtube":
+        if "/shorts/" in url_lower:
+            return "shorts"
+        return "youtube"
+    elif platform == "tiktok":
+        return "tiktok"
+    elif platform == "instagram":
+        return "reels"
+    return platform
+
+
 def extract_url(text):
     url_pattern = r'https?://[^\s<>\"\']+|www\.[^\s<>\"\']+'
     match = re.search(url_pattern, text)
@@ -75,6 +88,10 @@ def _get_platform_opts(platform):
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
+        session_id = os.getenv("INSTAGRAM_SESSION_ID", "")
+        if session_id:
+            opts["cookiefile"] = None
+            opts["http_headers"]["Cookie"] = f"sessionid={session_id}"
     return opts
 
 
@@ -298,11 +315,12 @@ def _compress_sync(input_path):
 async def download_video(url, user_id=None, compress=False):
     platform = detect_platform(url)
     if not platform:
-        return None, None, None, "Ссылка не распознана."
+        return None, None, None, None, "Ссылка не распознана."
 
+    video_type = detect_video_type(url, platform)
     loop = asyncio.get_event_loop()
     filepath, description, error = await loop.run_in_executor(None, _download_sync, url, platform, user_id, compress)
-    return filepath, platform, description, error
+    return filepath, platform, video_type, description, error
 
 
 async def compress_video(input_path):
