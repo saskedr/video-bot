@@ -156,6 +156,13 @@ async def safe_send_video(chat_id, video, **kwargs):
     return await send_with_fallback(bot.send_video, chat_id, video, **kwargs)
 
 
+async def safe_delete_message(chat_id, message_id):
+    try:
+        await send_with_fallback(bot.delete_message, chat_id, message_id)
+    except Exception:
+        pass
+
+
 async def update_progress(chat_id, message_id, user_id, platform, done_event):
     last_text = ""
     while not done_event.is_set():
@@ -325,17 +332,22 @@ async def handle_message(message):
         return
 
     try:
-        with open(filepath, "rb") as video_file:
-            await safe_send_video(message.chat.id, video_file, caption="Готово ✅", supports_streaming=True)
-        update_download_status(download_id, "success", file_size)
-
+        inline_kb = None
         if description and description.strip():
             desc_key = store_description(description.strip())
             inline_kb = types.InlineKeyboardMarkup()
             inline_kb.add(types.InlineKeyboardButton("📝 Получить описание", callback_data=f"desc_{desc_key}"))
-            await safe_edit_message("Готово ✅", message.chat.id, msg.message_id, reply_markup=inline_kb)
-        else:
-            await safe_edit_message("Готово ✅", message.chat.id, msg.message_id)
+
+        with open(filepath, "rb") as video_file:
+            await safe_send_video(
+                message.chat.id, video_file,
+                caption="Готово ✅",
+                supports_streaming=True,
+                reply_markup=inline_kb
+            )
+        update_download_status(download_id, "success", file_size)
+
+        await safe_delete_message(message.chat.id, msg.message_id)
 
         await safe_send_message(
             message.chat.id,

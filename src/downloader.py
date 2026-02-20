@@ -58,7 +58,7 @@ def _get_base_opts():
 def _get_platform_opts(platform):
     opts = {}
     if platform == "youtube":
-        opts["format"] = "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        opts["format"] = "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best[height<=720]/best"
         opts["merge_output_format"] = "mp4"
     elif platform == "tiktok":
         opts["format"] = "best[ext=mp4]/best"
@@ -215,6 +215,9 @@ def _download_sync(url, platform, user_id=None, compress=False):
                 return None, None, "Видео не нашлось 😔"
 
             description = info.get("description") or ""
+            channel_desc = info.get("channel_description") or ""
+            if description and description == channel_desc:
+                description = ""
 
             filename = ydl.prepare_filename(info)
             if not filename.endswith(".mp4"):
@@ -256,7 +259,7 @@ def _download_sync(url, platform, user_id=None, compress=False):
         elif "Login required" in error_msg or "login" in error_msg.lower():
             return None, None, "Для скачивания нужна авторизация."
         elif "geo" in error_msg.lower() or "country" in error_msg.lower():
-            return None, None, "Видео недоступно в этом регионе."
+            return None, None, "Видео ограничено по региону, скачать не получится."
         return None, None, "Видео не нашлось 😔"
     except Exception:
         return None, None, "Видео не нашлось 😔"
