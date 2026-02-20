@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from database import init_db, register_user, log_download, update_download_status, get_user_stats
 from downloader import (
-    extract_url, detect_platform, download_video, compress_video,
+    extract_url, detect_platform, download_video,
     cleanup_file, MAX_FILE_SIZE, get_progress_text, active_progress
 )
 
@@ -128,21 +128,14 @@ async def send_with_fallback(func, *args, **kwargs):
 
 
 bot = AsyncTeleBot(TOKEN)
-pending_compress = {}
 init_db()
 
 
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(types.KeyboardButton("📊 статистика"), types.KeyboardButton("❓ помощь"))
-    return markup
-
-
-def get_compress_keyboard():
-    markup = types.InlineKeyboardMarkup()
     markup.row(
-        types.InlineKeyboardButton("👍 сжать", callback_data="compress_yes"),
-        types.InlineKeyboardButton("👎 не надо", callback_data="compress_no"),
+        types.KeyboardButton("📊 Статистика"),
+        types.KeyboardButton("❓ Помощь")
     )
     return markup
 
@@ -176,35 +169,29 @@ async def update_progress(chat_id, message_id, user_id, platform, done_event):
 async def cmd_start(message):
     user = message.from_user
     register_user(user.id, user.username, user.first_name, user.last_name)
-    name = user.first_name or "друг"
     await safe_send_message(
         message.chat.id,
-        f"йо, {name}! 👋\n\n"
-        f"кидай ссылку на видео и я скачаю в лучшем качестве:\n\n"
-        f"🎬 YouTube (и Shorts тоже)\n"
-        f"🎵 TikTok\n"
-        f"📸 Instagram\n\n"
-        f"просто кидай ссылку, остальное сам разберу 😎",
+        "Привет 👋\n\n"
+        "Отправь мне ссылку на видео с YouTube, TikTok или Instagram, "
+        "и я скачаю его в лучшем качестве.",
         reply_markup=get_main_keyboard()
     )
 
 
-@bot.message_handler(func=lambda m: m.text == "❓ помощь")
+@bot.message_handler(func=lambda m: m.text == "❓ Помощь")
 async def btn_help(message):
     await safe_send_message(
         message.chat.id,
-        "всё просто — кидаешь ссылку, я качаю 🤙\n\n"
-        "что умею:\n"
-        "🎬 YouTube — обычные видео и Shorts\n"
-        "🎵 TikTok — любые видео\n"
-        "📸 Instagram — Reels и посты\n\n"
-        "если видос больше 50 МБ, предложу сжать.\n"
-        "качаю в лучшем качестве, не переживай 💪",
+        "Отправь ссылку на видео, и я скачаю его для тебя.\n\n"
+        "Поддерживаемые платформы:\n"
+        "— YouTube (обычные видео и Shorts)\n"
+        "— TikTok\n"
+        "— Instagram (Reels и посты с видео)",
         reply_markup=get_main_keyboard()
     )
 
 
-@bot.message_handler(func=lambda m: m.text == "📊 статистика")
+@bot.message_handler(func=lambda m: m.text == "📊 Статистика")
 async def btn_stats(message):
     stats = get_user_stats(message.from_user.id)
     total = stats["total"] or 0
@@ -212,101 +199,16 @@ async def btn_stats(message):
     errors = stats["errors"] or 0
 
     if total == 0:
-        text = "ты ещё ничего не скачивал 🤷\nкидай ссылку, начнём!"
-    elif errors == 0:
-        text = (
-            f"твоя стата 📊\n\n"
-            f"всего: {total}\n"
-            f"успешно: {success} ✅\n\n"
-            f"ни одной ошибки, красавчик 🔥"
-        )
+        text = "Пока ничего не скачивал. Отправь ссылку на видео!"
     else:
         text = (
-            f"твоя стата 📊\n\n"
-            f"всего: {total}\n"
-            f"успешно: {success} ✅\n"
-            f"не вышло: {errors} ❌"
+            f"Статистика:\n\n"
+            f"Всего запросов: {total}\n"
+            f"Успешно: {success} ✅\n"
+            f"Ошибок: {errors} ❌"
         )
 
     await safe_send_message(message.chat.id, text, reply_markup=get_main_keyboard())
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("compress_"))
-async def handle_compress_callback(call):
-    user_id = call.from_user.id
-    if user_id not in pending_compress:
-        await bot.answer_callback_query(call.id, "запрос устарел 🤷")
-        return
-
-    data = pending_compress.pop(user_id)
-    await bot.answer_callback_query(call.id)
-
-    if call.data == "compress_yes":
-        await safe_edit_message(
-            "⚡ сжимаю видео, подожди...",
-            call.message.chat.id, call.message.message_id
-        )
-
-        original_filepath = data.get("filepath")
-
-        if not original_filepath or not os.path.exists(original_filepath):
-            filepath, _, error = await download_video(data["url"], user_id=user_id, compress=True)
-            if error:
-                cleanup_file(filepath)
-                update_download_status(data["download_id"], "error")
-                await safe_edit_message(error, call.message.chat.id, call.message.message_id)
-                return
-        else:
-            filepath = await compress_video(original_filepath)
-            cleanup_file(original_filepath)
-            if not filepath or not os.path.exists(filepath):
-                update_download_status(data["download_id"], "error")
-                await safe_edit_message(
-                    "не получилось сжать 😕",
-                    call.message.chat.id, call.message.message_id
-                )
-                return
-            compressed_size = os.path.getsize(filepath)
-            if compressed_size > MAX_FILE_SIZE:
-                cleanup_file(filepath)
-                update_download_status(data["download_id"], "error")
-                await safe_edit_message(
-                    "даже после сжатия слишком тяжёлый для тг (>50 МБ) 😔",
-                    call.message.chat.id, call.message.message_id
-                )
-                return
-
-        if filepath and os.path.exists(filepath):
-            file_size = os.path.getsize(filepath)
-            try:
-                with open(filepath, "rb") as video_file:
-                    await safe_send_video(call.message.chat.id, video_file, supports_streaming=True)
-                update_download_status(data["download_id"], "success", file_size, compressed=True)
-                await safe_edit_message(
-                    "сжал и отправил ✅",
-                    call.message.chat.id, call.message.message_id
-                )
-            except Exception:
-                update_download_status(data["download_id"], "error")
-                await safe_edit_message(
-                    "не смог отправить видео 😕",
-                    call.message.chat.id, call.message.message_id
-                )
-            finally:
-                cleanup_file(filepath)
-        else:
-            update_download_status(data["download_id"], "error")
-            await safe_edit_message(
-                "не получилось сжать 😕",
-                call.message.chat.id, call.message.message_id
-            )
-    else:
-        update_download_status(data["download_id"], "cancelled")
-        cleanup_file(data.get("filepath"))
-        await safe_edit_message(
-            "ок, отменил 👌",
-            call.message.chat.id, call.message.message_id
-        )
 
 
 @bot.message_handler(func=lambda m: m.text is not None)
@@ -318,7 +220,7 @@ async def handle_message(message):
     if not url:
         await safe_send_message(
             message.chat.id,
-            "кинь ссылку на видео с YouTube, TikTok или Instagram 🔗",
+            "Отправь ссылку на видео с YouTube, TikTok или Instagram.",
             reply_markup=get_main_keyboard()
         )
         return
@@ -327,7 +229,7 @@ async def handle_message(message):
     if not platform:
         await safe_send_message(
             message.chat.id,
-            "я пока умею только YouTube, TikTok и Instagram 🙅",
+            "Поддерживаются только YouTube, TikTok и Instagram.",
             reply_markup=get_main_keyboard()
         )
         return
@@ -335,7 +237,7 @@ async def handle_message(message):
     platform_names = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
     msg = await safe_send_message(
         message.chat.id,
-        f"🔍 ищу видео на {platform_names.get(platform, platform)}..."
+        f"Скачиваю видео с {platform_names.get(platform, platform)}..."
     )
 
     download_id = log_download(user.id, url, platform)
@@ -356,13 +258,16 @@ async def handle_message(message):
     if error:
         cleanup_file(filepath)
         update_download_status(download_id, "error")
-        await safe_edit_message(error, message.chat.id, msg.message_id)
+        await safe_edit_message(
+            "Видео не нашлось, попробуй другую ссылку 😔",
+            message.chat.id, msg.message_id
+        )
         return
 
     if not filepath or not os.path.exists(filepath):
         update_download_status(download_id, "error")
         await safe_edit_message(
-            "не получилось скачать 😕",
+            "Видео не нашлось, попробуй другую ссылку 😔",
             message.chat.id, msg.message_id
         )
         return
@@ -370,27 +275,26 @@ async def handle_message(message):
     file_size = os.path.getsize(filepath)
 
     if file_size > MAX_FILE_SIZE:
-        pending_compress[user.id] = {"url": url, "download_id": download_id, "filepath": filepath}
+        cleanup_file(filepath)
+        update_download_status(download_id, "error")
+        size_mb = file_size // (1024 * 1024)
         await safe_edit_message(
-            f"видос весит {file_size // (1024*1024)} МБ, "
-            f"а лимит тг — 50 МБ 😬\n\n"
-            f"сжать?",
-            message.chat.id,
-            msg.message_id,
-            reply_markup=get_compress_keyboard()
+            f"Видео весит {size_mb} МБ, а ограничение Telegram — 50 МБ 😔",
+            message.chat.id, msg.message_id
         )
         return
-
-    await safe_edit_message("📤 отправляю...", message.chat.id, msg.message_id)
 
     try:
         with open(filepath, "rb") as video_file:
             await safe_send_video(message.chat.id, video_file, supports_streaming=True)
         update_download_status(download_id, "success", file_size)
-        await safe_edit_message("готово ✅", message.chat.id, msg.message_id)
+        await safe_edit_message("Готово ✅", message.chat.id, msg.message_id)
     except Exception:
         update_download_status(download_id, "error")
-        await safe_edit_message("не смог отправить видео 😕", message.chat.id, msg.message_id)
+        await safe_edit_message(
+            "Не получилось отправить видео 😔",
+            message.chat.id, msg.message_id
+        )
     finally:
         cleanup_file(filepath)
 

@@ -135,7 +135,7 @@ def format_speed(speed):
 
 def format_eta(eta):
     if not eta or eta == 0:
-        return "хз"
+        return "..."
     if eta < 60:
         return f"{int(eta)}с"
     return f"{int(eta // 60)}м {int(eta % 60)}с"
@@ -152,20 +152,20 @@ def get_progress_text(user_id, platform):
     platform_names = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
     p = active_progress.get(user_id)
     if not p:
-        return f"🔍 ищу видео на {platform_names.get(platform, platform)}..."
+        return f"Ищу видео на {platform_names.get(platform, platform)}..."
 
     if p["status"] == "processing":
-        return f"⚡ почти готово, обрабатываю..."
+        return f"Почти готово, обрабатываю..."
 
     percent = p["percent"]
     bar = build_progress_bar(percent)
     speed_str = format_speed(p["speed"])
     eta_str = format_eta(p["eta"])
 
-    lines = [f"{bar} {percent:.0f}%"]
+    lines = [f"Скачиваю видео\n{bar} {percent:.0f}%"]
     if p["total"] > 0:
-        lines.append(f"📦 {format_size(p['downloaded'])} / {format_size(p['total'])}")
-    lines.append(f"⚡ {speed_str}  ⏱ ~{eta_str}")
+        lines.append(f"{format_size(p['downloaded'])} / {format_size(p['total'])}")
+    lines.append(f"{speed_str} · ~{eta_str}")
 
     return "\n".join(lines)
 
@@ -185,7 +185,7 @@ def _download_sync(url, platform, user_id=None, compress=False):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info is None:
-                return None, "не нашел видео по этой ссылке 🤷"
+                return None, "Видео не нашлось, попробуй другую ссылку 😔"
 
             filename = ydl.prepare_filename(info)
             if not filename.endswith(".mp4"):
@@ -200,7 +200,7 @@ def _download_sync(url, platform, user_id=None, compress=False):
                         break
 
             if not os.path.exists(filename):
-                return None, "скачал, но файл куда-то делся 🫠"
+                return None, "Видео не нашлось, попробуй другую ссылку 😔"
 
             file_size = os.path.getsize(filename)
 
@@ -211,26 +211,26 @@ def _download_sync(url, platform, user_id=None, compress=False):
                     compressed_size = os.path.getsize(compressed_filename)
                     if compressed_size > MAX_FILE_SIZE:
                         os.remove(compressed_filename)
-                        return None, "даже после сжатия видос слишком тяжелый для тг (>50 МБ) 😔"
+                        return None, "Видео слишком большое даже после сжатия 😔"
                     return compressed_filename, None
                 else:
-                    return filename, "не получилось сжать видео 😕"
+                    return filename, "Не получилось сжать видео 😔"
 
             return filename, None
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
         if "Video unavailable" in error_msg or "not available" in error_msg:
-            return None, "видео недоступно или удалено 💀"
+            return None, "Видео не нашлось, попробуй другую ссылку 😔"
         elif "Private video" in error_msg:
-            return None, "это приватное видео, не могу достать 🔒"
+            return None, "Это приватное видео, доступ ограничен 😔"
         elif "Login required" in error_msg or "login" in error_msg.lower():
-            return None, "нужна авторизация для скачивания, не могу 😤"
+            return None, "Для скачивания нужна авторизация 😔"
         elif "geo" in error_msg.lower() or "country" in error_msg.lower():
-            return None, "видео заблокировано в этом регионе 🌍"
-        return None, "не получилось скачать, видео не найдено или недоступно 😕"
+            return None, "Видео недоступно в этом регионе 😔"
+        return None, "Видео не нашлось, попробуй другую ссылку 😔"
     except Exception:
-        return None, "что-то пошло не так при скачивании 💥"
+        return None, "Видео не нашлось, попробуй другую ссылку 😔"
     finally:
         if user_id and user_id in active_progress:
             del active_progress[user_id]
