@@ -172,8 +172,8 @@ async def cmd_start(message):
     await safe_send_message(
         message.chat.id,
         "Привет 👋\n\n"
-        "Отправь мне ссылку на видео с YouTube, TikTok или Instagram, "
-        "и я скачаю его в лучшем качестве.",
+        "Достаточно отправить ссылку на видео с YouTube, TikTok или Instagram — "
+        "видео скачается в лучшем качестве.",
         reply_markup=get_main_keyboard()
     )
 
@@ -182,7 +182,7 @@ async def cmd_start(message):
 async def btn_help(message):
     await safe_send_message(
         message.chat.id,
-        "Отправь ссылку на видео, и я скачаю его для тебя.\n\n"
+        "Просто ссылка на видео — и оно скачается в лучшем качестве.\n\n"
         "Поддерживаемые платформы:\n"
         "— YouTube (обычные видео и Shorts)\n"
         "— TikTok\n"
@@ -199,13 +199,13 @@ async def btn_stats(message):
     errors = stats["errors"] or 0
 
     if total == 0:
-        text = "Пока ничего не скачивал. Отправь ссылку на видео!"
+        text = "Скачиваний пока не было."
     else:
         text = (
             f"Статистика:\n\n"
             f"Всего запросов: {total}\n"
-            f"Успешно: {success} ✅\n"
-            f"Ошибок: {errors} ❌"
+            f"Успешно: {success}\n"
+            f"Ошибок: {errors}"
         )
 
     await safe_send_message(message.chat.id, text, reply_markup=get_main_keyboard())
@@ -220,7 +220,7 @@ async def handle_message(message):
     if not url:
         await safe_send_message(
             message.chat.id,
-            "Отправь ссылку на видео с YouTube, TikTok или Instagram.",
+            "Нужна ссылка на видео с YouTube, TikTok или Instagram.",
             reply_markup=get_main_keyboard()
         )
         return
@@ -229,7 +229,7 @@ async def handle_message(message):
     if not platform:
         await safe_send_message(
             message.chat.id,
-            "Поддерживаются только YouTube, TikTok и Instagram.",
+            "Ссылка не распознана. Поддерживаются YouTube, TikTok и Instagram.",
             reply_markup=get_main_keyboard()
         )
         return
@@ -258,16 +258,13 @@ async def handle_message(message):
     if error:
         cleanup_file(filepath)
         update_download_status(download_id, "error")
-        await safe_edit_message(
-            "Видео не нашлось, попробуй другую ссылку 😔",
-            message.chat.id, msg.message_id
-        )
+        await safe_edit_message(error, message.chat.id, msg.message_id)
         return
 
     if not filepath or not os.path.exists(filepath):
         update_download_status(download_id, "error")
         await safe_edit_message(
-            "Видео не нашлось, попробуй другую ссылку 😔",
+            "Видео не нашлось 😔",
             message.chat.id, msg.message_id
         )
         return
@@ -279,7 +276,7 @@ async def handle_message(message):
         update_download_status(download_id, "error")
         size_mb = file_size // (1024 * 1024)
         await safe_edit_message(
-            f"Видео весит {size_mb} МБ, а ограничение Telegram — 50 МБ 😔",
+            f"Видео весит {size_mb} МБ, ограничение Telegram — 50 МБ.",
             message.chat.id, msg.message_id
         )
         return
@@ -292,7 +289,7 @@ async def handle_message(message):
     except Exception:
         update_download_status(download_id, "error")
         await safe_edit_message(
-            "Не получилось отправить видео 😔",
+            "Не получилось отправить видео.",
             message.chat.id, msg.message_id
         )
     finally:
