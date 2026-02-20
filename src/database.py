@@ -119,14 +119,15 @@ def get_user_stats(user_id):
             SUM(CASE WHEN video_type = 'youtube' AND status = 'success' THEN 1 ELSE 0 END) as youtube,
             SUM(CASE WHEN video_type = 'shorts' AND status = 'success' THEN 1 ELSE 0 END) as shorts,
             SUM(CASE WHEN video_type = 'tiktok' AND status = 'success' THEN 1 ELSE 0 END) as tiktok,
-            SUM(CASE WHEN video_type = 'reels' AND status = 'success' THEN 1 ELSE 0 END) as reels
+            SUM(CASE WHEN video_type = 'reels' AND status = 'success' THEN 1 ELSE 0 END) as reels,
+            SUM(CASE WHEN video_type = 'instagram' AND status = 'success' THEN 1 ELSE 0 END) as instagram
         FROM downloads WHERE user_id = ?
     """, (user_id,))
     platform_result = cursor.fetchone()
     if platform_result:
         stats.update(dict(platform_result))
     else:
-        stats.update({"youtube": 0, "shorts": 0, "tiktok": 0, "reels": 0})
+        stats.update({"youtube": 0, "shorts": 0, "tiktok": 0, "reels": 0, "instagram": 0})
 
     conn.close()
     return stats

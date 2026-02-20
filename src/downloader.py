@@ -34,7 +34,9 @@ def detect_video_type(url, platform):
     elif platform == "tiktok":
         return "tiktok"
     elif platform == "instagram":
-        return "reels"
+        if "/reel/" in url_lower or "/reels/" in url_lower:
+            return "reels"
+        return "instagram"
     return platform
 
 

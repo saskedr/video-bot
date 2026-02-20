@@ -208,6 +208,7 @@ async def btn_stats(message):
     shorts = stats.get("shorts") or 0
     tiktok = stats.get("tiktok") or 0
     reels = stats.get("reels") or 0
+    ig = stats.get("instagram") or 0
 
     if total == 0:
         text = "Скачиваний пока не было."
@@ -221,6 +222,8 @@ async def btn_stats(message):
             lines.append(f"▸ TikTok: {tiktok}")
         if reels > 0:
             lines.append(f"▸ Reels: {reels}")
+        if ig > 0:
+            lines.append(f"▸ Instagram: {ig}")
         text = "\n".join(lines)
 
     await safe_send_message(message.chat.id, text, reply_markup=get_main_keyboard())
