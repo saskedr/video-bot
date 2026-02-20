@@ -4,7 +4,7 @@ from telebot import apihelper
 from dotenv import load_dotenv
 
 from database import init_db, register_user, log_download, update_download_status, get_user_stats
-from downloader import extract_url, detect_platform, download_video, cleanup_file, MAX_FILE_SIZE
+from downloader import extract_url, detect_platform, download_video, compress_video, cleanup_file, MAX_FILE_SIZE
 
 load_dotenv()
 
@@ -15,7 +15,10 @@ SOCKS5_USERNAME = os.getenv("SOCKS5_USERNAME", "")
 SOCKS5_PASSWORD = os.getenv("SOCKS5_PASSWORD", "")
 
 if SOCKS5_HOST and SOCKS5_PORT:
-    proxy_url = f"socks5://{SOCKS5_USERNAME}:{SOCKS5_PASSWORD}@{SOCKS5_HOST}:{SOCKS5_PORT}"
+    if SOCKS5_USERNAME and SOCKS5_PASSWORD:
+        proxy_url = f"socks5://{SOCKS5_USERNAME}:{SOCKS5_PASSWORD}@{SOCKS5_HOST}:{SOCKS5_PORT}"
+    else:
+        proxy_url = f"socks5://{SOCKS5_HOST}:{SOCKS5_PORT}"
     apihelper.proxy = {"https": proxy_url, "http": proxy_url}
 
 bot = telebot.TeleBot(TOKEN)
@@ -80,15 +83,33 @@ def handle_compress_response(message):
     if text in ["да", "yes", "ок", "ok", "давай", "сжать", "сжимай"]:
         msg = bot.send_message(message.chat.id, "⏳ Сжимаю видео, подожди...")
 
-        filepath, platform, error = download_video(data["url"], compress=True)
+        original_filepath = data.get("filepath")
 
-        if error:
-            cleanup_file(filepath)
-            update_download_status(data["download_id"], "error")
-            bot.edit_message_text(f"❌ {error}", message.chat.id, msg.message_id)
-            return
+        if not original_filepath or not os.path.exists(original_filepath):
+            filepath, _, error = download_video(data["url"], compress=True)
+            if error:
+                cleanup_file(filepath)
+                update_download_status(data["download_id"], "error")
+                bot.edit_message_text(f"❌ {error}", message.chat.id, msg.message_id)
+                return
+        else:
+            filepath = compress_video(original_filepath)
+            cleanup_file(original_filepath)
+            if not filepath or not os.path.exists(filepath):
+                update_download_status(data["download_id"], "error")
+                bot.edit_message_text("❌ Не удалось сжать видео.", message.chat.id, msg.message_id)
+                return
+            compressed_size = os.path.getsize(filepath)
+            if compressed_size > MAX_FILE_SIZE:
+                cleanup_file(filepath)
+                update_download_status(data["download_id"], "error")
+                bot.edit_message_text(
+                    "❌ Даже после сжатия файл слишком большой для отправки в Telegram (>50 МБ).",
+                    message.chat.id, msg.message_id
+                )
+                return
 
-        if filepath:
+        if filepath and os.path.exists(filepath):
             file_size = os.path.getsize(filepath)
             try:
                 with open(filepath, "rb") as video_file:
@@ -100,8 +121,12 @@ def handle_compress_response(message):
                 bot.edit_message_text("❌ Не удалось отправить видео.", message.chat.id, msg.message_id)
             finally:
                 cleanup_file(filepath)
+        else:
+            update_download_status(data["download_id"], "error")
+            bot.edit_message_text("❌ Не удалось сжать видео.", message.chat.id, msg.message_id)
     else:
         update_download_status(data["download_id"], "cancelled")
+        cleanup_file(data.get("filepath"))
         bot.send_message(message.chat.id, "Хорошо, скачивание отменено.")
 
 
@@ -149,8 +174,7 @@ def handle_message(message):
     file_size = os.path.getsize(filepath)
 
     if file_size > MAX_FILE_SIZE:
-        cleanup_file(filepath)
-        pending_compress[user.id] = {"url": url, "download_id": download_id}
+        pending_compress[user.id] = {"url": url, "download_id": download_id, "filepath": filepath}
         bot.edit_message_text(
             f"⚠️ Видео слишком большое ({file_size // (1024*1024)} МБ), "
             f"лимит Telegram — 50 МБ.\n\n"
