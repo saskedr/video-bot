@@ -320,10 +320,10 @@ async def handle_message(message):
             )
             return
 
-    platform_names = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
+    platform_download = {"youtube": "с YouTube", "tiktok": "с TikTok", "instagram": "с Instagram"}
     msg = await safe_send_message(
         message.chat.id,
-        f"Скачиваю видео с {platform_names.get(platform, platform)}..."
+        f"Скачиваю видео {platform_download.get(platform, platform)}..."
     )
 
     video_type = detect_video_type(url, platform)

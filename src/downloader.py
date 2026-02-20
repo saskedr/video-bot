@@ -180,10 +180,10 @@ def build_progress_bar(percent, width=10):
 
 
 def get_progress_text(user_id, platform):
-    platform_names = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
+    platform_search = {"youtube": "на YouTube", "tiktok": "в TikTok", "instagram": "в Instagram"}
     p = active_progress.get(user_id)
     if not p:
-        return f"Ищу видео на {platform_names.get(platform, platform)}..."
+        return f"Ищу видео {platform_search.get(platform, platform)}..."
 
     if p["status"] == "processing":
         return f"Почти готово, обрабатываю..."
