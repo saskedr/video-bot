@@ -313,7 +313,7 @@ async def main():
 
     while True:
         try:
-            await bot.infinity_polling(timeout=60, long_polling_timeout=60)
+            await bot.infinity_polling(timeout=60, request_timeout=90)
         except Exception as e:
             logger.error(f"Polling error: {e}")
             new_mode = await connect_with_fallback(bot)
