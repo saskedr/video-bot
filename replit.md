@@ -44,6 +44,7 @@ src/
 - MTPROTO_HOST - MTProto proxy host (optional)
 - MTPROTO_PORT - MTProto proxy port (optional)
 - MTPROTO_SECRET - MTProto proxy secret (optional)
+- INSTAGRAM_SESSION_ID - Instagram session cookie for authenticated downloads (optional, needed for Instagram)
 
 ## Running
 The bot runs via `python src/bot.py` and uses infinity_polling with auto-reconnect.
