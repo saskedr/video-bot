@@ -17,7 +17,7 @@ def detect_platform(url):
         return "tiktok"
     elif "instagram.com" in url_lower or "instagr.am" in url_lower:
         return "instagram"
-    elif "youtube.com" in url_lower or "youtu.be" in url_lower or "youtube.com/shorts" in url_lower:
+    elif "youtube.com" in url_lower or "youtu.be" in url_lower:
         return "youtube"
     return None
 
@@ -26,6 +26,53 @@ def extract_url(text):
     url_pattern = r'https?://[^\s<>\"\']+|www\.[^\s<>\"\']+'
     match = re.search(url_pattern, text)
     return match.group(0) if match else None
+
+
+def _get_base_opts():
+    return {
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "retries": 5,
+        "fragment_retries": 5,
+        "extractor_retries": 3,
+        "file_access_retries": 3,
+        "noproxy": True,
+        "nocheckcertificate": True,
+        "prefer_insecure": False,
+        "geo_bypass": True,
+        "geo_bypass_country": "US",
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Sec-Fetch-Mode": "navigate",
+        },
+    }
+
+
+def _get_platform_opts(platform):
+    opts = {}
+    if platform == "youtube":
+        opts["format"] = "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        opts["merge_output_format"] = "mp4"
+    elif platform == "tiktok":
+        opts["format"] = "best[ext=mp4]/best"
+        opts["merge_output_format"] = "mp4"
+        opts["http_headers"] = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+    elif platform == "instagram":
+        opts["format"] = "best[ext=mp4]/best"
+        opts["merge_output_format"] = "mp4"
+        opts["http_headers"] = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+    return opts
 
 
 def download_video(url, compress=False):
@@ -37,19 +84,9 @@ def download_video(url, compress=False):
 
     output_template = os.path.join(VIDEOS_DIR, "%(id)s.%(ext)s")
 
-    ydl_opts = {
-        "outtmpl": output_template,
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "merge_output_format": "mp4",
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
-        "socket_timeout": 30,
-        "retries": 3,
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        },
-    }
+    ydl_opts = _get_base_opts()
+    ydl_opts["outtmpl"] = output_template
+    ydl_opts.update(_get_platform_opts(platform))
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -63,8 +100,9 @@ def download_video(url, compress=False):
                 filename = base + ".mp4"
 
             if not os.path.exists(filename):
+                video_id = info.get("id", "")
                 for f in os.listdir(VIDEOS_DIR):
-                    if f.startswith(info.get("id", "")) and f.endswith(".mp4"):
+                    if video_id and f.startswith(video_id) and f.endswith(".mp4"):
                         filename = os.path.join(VIDEOS_DIR, f)
                         break
 
@@ -95,9 +133,11 @@ def download_video(url, compress=False):
             return None, platform, "Это приватное видео, доступ к нему ограничен."
         elif "Login required" in error_msg or "login" in error_msg.lower():
             return None, platform, "Для скачивания этого видео требуется авторизация."
-        return None, platform, f"Ошибка при скачивании: видео не найдено или недоступно."
-    except Exception as e:
-        return None, platform, f"Произошла непредвиденная ошибка при скачивании."
+        elif "geo" in error_msg.lower() or "country" in error_msg.lower():
+            return None, platform, "Видео недоступно в данном регионе."
+        return None, platform, "Ошибка при скачивании: видео не найдено или недоступно."
+    except Exception:
+        return None, platform, "Произошла непредвиденная ошибка при скачивании."
 
 
 def compress_video(input_path):
