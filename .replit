@@ -28,3 +28,7 @@ args = "cd /home/runner/workspace && python src/bot.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[deployment]
+run = ["sh", "-c", "python src/bot.py"]
+deploymentTarget = "cloudrun"
