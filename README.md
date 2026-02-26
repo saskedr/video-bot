@@ -24,3 +24,4 @@
 1. Установите зависимости
 2. Добавьте `TELEGRAM_BOT_TOKEN` в переменные окружения
 3. Запустите: `python src/bot.py`
+# Testing auto-deploy
